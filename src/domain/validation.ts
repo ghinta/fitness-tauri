@@ -758,17 +758,6 @@ export function validateDomainData(data: DomainData): ValidationIssue[] {
           'Übung existiert nicht.',
         ),
       );
-    } else if (
-      result.weightKg === null &&
-      exercise.equipmentType !== 'bodyweight'
-    ) {
-      issues.push(
-        issue(
-          `exerciseResults[${index}].weightKg`,
-          'invariant',
-          'Nur Körpergewichtsübungen dürfen ohne externes Gewicht gespeichert werden.',
-        ),
-      );
     }
     if (
       session !== undefined &&

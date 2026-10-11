@@ -202,22 +202,12 @@ export class FitnessService {
       exerciseId: exercise.id,
       exerciseNameSnapshot: exercise.name,
       setType: input.setType,
-      weightKg:
-        exercise.equipmentType === 'bodyweight'
-          ? input.weightKg
-          : input.weightKg,
+      weightKg: input.weightKg,
       durationSeconds: input.durationSeconds,
       notes: input.notes.trim(),
       createdAt: this.now().toISOString(),
     };
     const issues = validateExerciseResult(result);
-    if (result.weightKg === null && exercise.equipmentType !== 'bodyweight') {
-      issues.push({
-        path: 'exerciseResult.weightKg',
-        code: 'invariant',
-        message: 'Für diese Übung ist ein Gewicht erforderlich.',
-      });
-    }
     if (issues.length > 0) throw new DomainValidationError(issues);
     await this.repositories.workouts.saveResult(result);
     return result;

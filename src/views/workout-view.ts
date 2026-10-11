@@ -83,6 +83,15 @@ async function createStep(
   progress.value = currentIndex;
   progress.ariaLabel = 'Trainingsfortschritt';
   header.append(progress);
+  const keepAwake = element('input');
+  keepAwake.type = 'checkbox';
+  keepAwake.checked = context.screenAwake.enabled;
+  keepAwake.addEventListener('change', () => {
+    void context.screenAwake.setEnabled(keepAwake.checked);
+  });
+  const wakeToggle = checkboxLabel(keepAwake, 'Bildschirm wach halten');
+  wakeToggle.classList.add('wake-toggle');
+  header.append(wakeToggle);
   section.append(header);
 
   section.append(
@@ -253,12 +262,9 @@ function createSetForm(
   weight.min = '0';
   weight.max = '100000';
   weight.step = 'any';
-  weight.placeholder =
-    exercise.equipmentType === 'bodyweight' ? 'optional' : '0';
-  if (previous?.weightKg !== null && previous?.weightKg !== undefined) {
+  weight.placeholder = 'optional';
+  if (previous?.weightKg !== null && previous?.weightKg !== undefined)
     weight.value = String(previous.weightKg);
-  }
-  weight.required = exercise.equipmentType !== 'bodyweight';
 
   const duration = element('input');
   duration.type = 'number';
@@ -268,31 +274,26 @@ function createSetForm(
   duration.max = '86400';
   duration.step = '1';
   duration.required = true;
-  const timer = workout.session.setTimer;
-  const ownsTimer =
-    timer?.exerciseSlotId === slot.id && timer.setType === setType;
-  if (ownsTimer && timer.weightKg !== null) {
-    weight.value = String(timer.weightKg);
+  duration.placeholder = 'Automatisch';
+  const initialTimer = workout.session.setTimer;
+  const ownsInitialTimer =
+    initialTimer?.exerciseSlotId === slot.id &&
+    initialTimer.setType === setType;
+  if (ownsInitialTimer) {
+    weight.value =
+      initialTimer.weightKg === null ? '' : String(initialTimer.weightKg);
+    if (initialTimer.durationSeconds !== null)
+      duration.value = String(initialTimer.durationSeconds);
   }
-  if (ownsTimer && timer.durationSeconds !== null) {
-    duration.value = String(timer.durationSeconds);
-  }
-  duration.readOnly = !ownsTimer || timer?.stoppedAt === null;
   grid.append(
     field(
       exercise.equipmentType === 'bodyweight'
         ? 'Zusatzgewicht (kg)'
         : 'Gewicht (kg)',
       weight,
-      exercise.equipmentType === 'bodyweight'
-        ? 'Leer lassen für reines Körpergewicht'
-        : undefined,
+      'Optional – du kannst direkt starten.',
     ),
-    field(
-      'Gemessene Dauer (Sekunden)',
-      duration,
-      'Nach dem Stoppen bei Bedarf korrigierbar',
-    ),
+    field('Dauer (s)', duration, 'Nach dem Stoppen bei Bedarf korrigierbar'),
   );
   const timerBox = element('div', { className: 'set-timer' });
   const timerDisplay = element('output', {
@@ -309,28 +310,78 @@ function createSetForm(
   const start = button('Start', 'button button--timer-start');
   const stop = button('Stop', 'button button--timer-stop');
   stop.dataset.timerControl = 'stop';
-  start.disabled = Boolean(timer);
-  stop.hidden = !ownsTimer || timer?.stoppedAt !== null;
-  if (ownsTimer)
-    updateTimerDisplay(
-      timerDisplay,
-      timerHint,
-      timer.startedAt,
-      timer.durationSeconds,
+  const notes = element('textarea');
+  notes.name = 'notes';
+  notes.rows = 2;
+  notes.maxLength = 2000;
+  if (ownsInitialTimer) notes.value = initialTimer.notes;
+  const messages = element('div');
+  const save = button(
+    isWarmup ? 'Aufwärmsatz speichern' : 'Arbeitssatz speichern & weiter',
+    isWarmup ? 'button' : 'button button--primary',
+    'submit',
+  );
+  let interval: number | undefined;
+  const syncTimer = (): void => {
+    if (interval !== undefined) window.clearInterval(interval);
+    interval = undefined;
+    const timer = workout.session.setTimer;
+    const ownsTimer =
+      timer?.exerciseSlotId === slot.id && timer.setType === setType;
+    const running = ownsTimer && timer.stoppedAt === null;
+    start.disabled = Boolean(timer);
+    start.hidden = Boolean(ownsTimer);
+    stop.hidden = !ownsTimer;
+    stop.disabled = !running;
+    stop.textContent = running ? 'Stop' : 'Gestoppt';
+    stop.classList.toggle('button--timer-stop', Boolean(running));
+    duration.readOnly = !ownsTimer || running;
+    weight.readOnly = Boolean(running);
+    save.disabled = !ownsTimer || timer.durationSeconds === null;
+    if (ownsTimer) {
+      if (timer.durationSeconds !== null)
+        duration.value = String(timer.durationSeconds);
+      updateTimerDisplay(
+        timerDisplay,
+        timerHint,
+        timer.startedAt,
+        timer.durationSeconds,
+      );
+      if (running)
+        interval = window.setInterval(() => {
+          if (!timerDisplay.isConnected) {
+            window.clearInterval(interval);
+            interval = undefined;
+            return;
+          }
+          updateTimerDisplay(timerDisplay, timerHint, timer.startedAt, null);
+        }, 250);
+    }
+  };
+  // Update both set controls without replacing the forms, losing drafts, or scrolling.
+  const notifyTimerChanged = (): void => {
+    form
+      .closest('.workout')
+      ?.querySelectorAll<HTMLFormElement>('form[data-set-type]')
+      .forEach((setForm) =>
+        setForm.dispatchEvent(new Event('set-timer-changed')),
+      );
+    context.setTimerRunning(workout.session.setTimer?.stoppedAt === null);
+  };
+  const updateDirty = (): void =>
+    context.setDirty(
+      Boolean(
+        form.closest('.workout')?.querySelector('form[data-dirty="true"]'),
+      ),
     );
-  if (ownsTimer && timer?.stoppedAt === null) {
-    const interval = window.setInterval(() => {
-      if (!timerDisplay.isConnected) {
-        window.clearInterval(interval);
-        return;
-      }
-      updateTimerDisplay(timerDisplay, timerHint, timer.startedAt, null);
-    }, 250);
-  }
+  form.addEventListener('set-timer-changed', syncTimer);
+  form.addEventListener('timer-resume', syncTimer);
+  syncTimer();
   start.addEventListener('click', () => {
     void (async () => {
       if (!weight.reportValidity()) return;
       start.disabled = true;
+      messages.replaceChildren();
       try {
         await context.fitness.startTimer(
           workout.session,
@@ -339,10 +390,22 @@ function createSetForm(
           weight.value.trim() === '' ? null : Number(weight.value),
           notes.value,
         );
-        await context.refresh({
-          scroll: 'timer',
-          focusSelector: '[data-timer-control="stop"]',
-        });
+        const active = await context.fitness.getActiveWorkout();
+        if (!active)
+          throw new Error('Das aktive Training wurde nicht gefunden.');
+        workout.session = active.session;
+        form.dataset.dirty = 'false';
+        updateDirty();
+        form
+          .closest('.workout')
+          ?.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
+            '.exercise-choice input, .exercise-choice button',
+          )
+          .forEach((control) => {
+            control.disabled = true;
+          });
+        notifyTimerChanged();
+        stop.focus({ preventScroll: true });
       } catch (error) {
         messages.replaceChildren(statusMessage(toMessage(error), 'error'));
         start.disabled = false;
@@ -353,11 +416,15 @@ function createSetForm(
     void (async () => {
       stop.disabled = true;
       try {
-        await context.fitness.stopTimer(workout.session);
-        await context.refresh({
-          scroll: 'timer',
-          focusSelector: `form[data-set-type="${setType}"] input[name="duration"]`,
-        });
+        const measured = await context.fitness.stopTimer(workout.session);
+        if (workout.session.setTimer)
+          workout.session.setTimer = {
+            ...workout.session.setTimer,
+            durationSeconds: measured,
+            stoppedAt: new Date().toISOString(),
+          };
+        notifyTimerChanged();
+        save.focus({ preventScroll: true });
       } catch (error) {
         messages.replaceChildren(statusMessage(toMessage(error), 'error'));
         stop.disabled = false;
@@ -366,20 +433,7 @@ function createSetForm(
   });
   timerActions.append(start, stop);
   timerBox.append(timerDisplay, timerHint, timerActions);
-  const notes = element('textarea');
-  notes.name = 'notes';
-  notes.rows = 2;
-  notes.maxLength = 2000;
-  if (ownsTimer) notes.value = timer.notes;
-  const messages = element('div');
-  const save = button(
-    isWarmup ? 'Aufwärmsatz speichern' : 'Arbeitssatz speichern & weiter',
-    isWarmup ? 'button' : 'button button--primary',
-    'submit',
-  );
-  save.disabled = !ownsTimer || timer?.durationSeconds === null;
   form.append(grid, timerBox, field('Notiz (optional)', notes), messages, save);
-
   form.addEventListener('input', () => {
     form.dataset.dirty = 'true';
     context.setDirty(true);
@@ -389,25 +443,47 @@ function createSetForm(
     void (async () => {
       messages.replaceChildren();
       save.disabled = true;
-      const parsedWeight =
-        weight.value.trim() === '' ? null : Number(weight.value);
       try {
-        await context.fitness.saveSet(workout.session, slot, {
+        const result = await context.fitness.saveSet(workout.session, slot, {
           setType,
-          weightKg: parsedWeight,
+          weightKg: weight.value.trim() === '' ? null : Number(weight.value),
           durationSeconds: Number(duration.value),
           notes: notes.value,
         });
         form.dataset.dirty = 'false';
-        context.setDirty(false);
-        await context.refresh();
+        if (isWarmup) {
+          // Keep the work set and any values entered there in place.
+          workout.session.setTimer = null;
+          workout.results.push(result);
+          const saved = element('article', { className: 'card card--compact' });
+          saved.append(
+            element('h2', { text: 'Aufwärmsatz gespeichert' }),
+            element('p', {
+              text: `${formatWeight(result.weightKg)} · ${result.durationSeconds} Sekunden`,
+            }),
+          );
+          const section = form.closest('.workout');
+          form.replaceWith(saved);
+          section
+            ?.querySelectorAll<HTMLFormElement>('form[data-set-type]')
+            .forEach((setForm) =>
+              setForm.dispatchEvent(new Event('set-timer-changed')),
+            );
+          context.setTimerRunning(false);
+          context.setDirty(
+            Boolean(section?.querySelector('form[data-dirty="true"]')),
+          );
+        } else {
+          context.setDirty(false);
+          context.setTimerRunning(false);
+          await context.refresh();
+        }
       } catch (error) {
         messages.append(statusMessage(toMessage(error), 'error'));
         save.disabled = false;
-        const first = form.querySelector<HTMLElement>(
-          'input:invalid, textarea:invalid',
-        );
-        first?.focus();
+        form
+          .querySelector<HTMLElement>('input:invalid, textarea:invalid')
+          ?.focus({ preventScroll: true });
       }
     })();
   });
@@ -500,6 +576,11 @@ function recommendationText(
   result: ExerciseResult,
   exercise: Exercise,
 ): HTMLElement {
+  if (result.weightKg === null && exercise.equipmentType !== 'bodyweight') {
+    return statusMessage(
+      'Kein Gewicht erfasst. Für eine Gewichtsempfehlung kannst du beim nächsten Mal ein Gewicht angeben.',
+    );
+  }
   const recommendation = recommendNextWeight(
     result.weightKg,
     result.durationSeconds,

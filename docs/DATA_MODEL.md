@@ -3,8 +3,8 @@
 ## Domain model
 
 Identifiers are stable UUID strings and timestamps are ISO 8601 UTC strings. Weight
-is a finite non-negative kilogram value or `null` for a bodyweight result without
-external load. Imported/entered weights are capped at 100,000 kg, durations at 86,400
+is a finite non-negative kilogram value or `null` when no weight was recorded.
+Weight entry is optional for both warmup and working sets. Imported/entered weights are capped at 100,000 kg, durations at 86,400
 seconds, and equipment increments at 1,000 kg.
 
 - **Exercise**: `id`, `name`, `muscleGroup`, `movementCategory`, `equipmentType`,
@@ -50,7 +50,7 @@ for each template when their stable IDs are absent.
 There is at most one active session. It selects exactly one active configured
 exercise for every active slot. A completed session has a completion time and one
 working result per selected slot. Each session has at most one warm-up and one
-working result per slot. Only bodyweight exercises may omit external weight.
+working result per slot. All exercises may omit weight; missing weight is not interpreted as zero or bodyweight.
 Exercise names are unique after German-locale lowercase and whitespace
 normalization. Slot categories and selected exercises must match.
 
@@ -68,8 +68,8 @@ The JSON root contains `format: "fitness-pwa-backup"`, `formatVersion: 1`,
 are embedded in exercise rows. Import accepts at most 50 MiB and rejects malformed
 JSON, unknown root fields/versions, invalid fields,
 collection limits, duplicate IDs/names/metadata keys, dangling references, and all
-domain invariants. Import never merges: after confirmation and creation of a
-downloadable pre-import backup, all six stores are replaced atomically.
+domain invariants. Import never merges: after confirmation and successful saving of a
+pre-import backup, all six stores are replaced atomically.
 
 ## Migration policy
 
@@ -77,3 +77,5 @@ Every future schema change increments the Dexie version and adds a forward migra
 tested from each supported prior version. Version 2 migrates the durable version-1
 schema as described above. Downgrades are unsupported; failures preserve the earlier
 transaction and show recovery guidance.
+
+The desktop importer accepts missing weights in all exercises. Earlier Fitness PWA versions reject backups containing non-bodyweight results without weights. Existing PWA exports remain importable into Fitness Glass.

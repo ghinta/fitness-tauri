@@ -18,6 +18,7 @@ import type {
 import { createWorkoutView } from '../views/workout-view';
 import { resolveRoute } from './router';
 import { guardWindowClose, confirmAction } from '../platform/desktop';
+import { createScreenAwake } from '../platform/screen-awake';
 import { createToolbar } from '../components/toolbar';
 
 export interface App {
@@ -59,6 +60,15 @@ export function createApp(
   const header = element('header', { className: 'app-header' });
   header.append(createToolbar());
   const updateHost = element('div', { className: 'system-messages' });
+  const screenAwake = createScreenAwake((status) => {
+    updateHost.replaceChildren();
+    if (status === 'unavailable')
+      updateHost.append(
+        statusMessage(
+          'Der Bildschirm kann auf diesem Gerät gerade nicht automatisch wach gehalten werden.',
+        ),
+      );
+  });
   const main = element('main', {
     className: 'app-content',
     id: 'main-content',
@@ -76,6 +86,10 @@ export function createApp(
       fitness,
       backup,
       refresh,
+      screenAwake,
+      setTimerRunning(value) {
+        runningTimer = value;
+      },
       setDirty(value) {
         dirty = value;
       },
@@ -88,15 +102,16 @@ export function createApp(
   }: RefreshOptions = {}): Promise<void> => {
     const renderId = ++rendering;
     main.ariaBusy = 'true';
-    main.replaceChildren(
-      element('p', { className: 'loading', text: 'Laden …' }),
-    );
+    const scrollTop = window.scrollY;
+    if (!main.firstElementChild)
+      main.append(element('p', { className: 'loading', text: 'Laden …' }));
     try {
       if (!fitness) throw new Error('Die lokale Datenbank ist nicht bereit.');
       const active = await fitness.getActiveWorkout();
       if (renderId !== rendering || stopped) return;
       runningTimer = active?.session.setTimer?.stoppedAt === null;
       navigation.hidden = resolveRoute(window.location.hash) === '/training';
+      void screenAwake.setTraining(Boolean(active) && navigation.hidden);
       const view = await views[resolveRoute(window.location.hash)](context());
       if (renderId !== rendering || stopped) return;
       main.replaceChildren(view);
@@ -109,10 +124,8 @@ export function createApp(
       focusTarget?.focus({ preventScroll: true });
       if (scroll === 'top') {
         window.scrollTo({ top: 0, behavior: 'instant' });
-      } else if (scroll === 'timer') {
-        main
-          .querySelector<HTMLElement>('[data-timer-display]')
-          ?.scrollIntoView({ block: 'center', behavior: 'auto' });
+      } else {
+        window.scrollTo({ top: scrollTop, behavior: 'instant' });
       }
     } catch (error) {
       main.removeAttribute('aria-busy');
@@ -149,13 +162,10 @@ export function createApp(
   const recoverAfterResume = (): void => {
     if (!ready || stopped || document.visibilityState !== 'visible' || dirty)
       return;
-    // Mobile browsers can discard native form focus while the app is suspended.
-    // Rebuilding from the persisted session gives the user fresh, enabled controls;
-    // an active timer is also brought back into view immediately.
-    void render({
-      scroll: 'timer',
-      focusSelector: '[data-timer-control="stop"]',
-    });
+    // Timestamps remain accurate after sleep; update controls in place without scrolling.
+    main
+      .querySelectorAll('form[data-set-type]')
+      .forEach((form) => form.dispatchEvent(new Event('timer-resume')));
   };
   const onVisibilityChange = (): void => {
     if (document.visibilityState === 'visible') recoverAfterResume();
@@ -192,6 +202,7 @@ export function createApp(
       window.removeEventListener('pageshow', onPageShow);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       disposeCloseGuard();
+      void screenAwake.dispose();
     },
   };
 }

@@ -4,6 +4,7 @@ test('completes Training A, resumes after reload, and shows alternative history'
   page,
 }) => {
   await page.clock.install({ time: new Date('2026-07-19T12:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-07-19T12:01:00Z'));
   await page.goto('./#/');
   await expect(page.getByRole('heading', { name: 'Start' })).toBeVisible();
   await page.getByRole('button', { name: 'Training starten' }).first().click();
@@ -60,6 +61,7 @@ test('persists an optional warmup and running timer after reload', async ({
   page,
 }) => {
   await page.clock.install({ time: new Date('2026-07-19T12:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-07-19T12:01:00Z'));
   await page.goto('./#/');
   await page.getByRole('button', { name: 'Training starten' }).first().click();
   await expect(page.getByRole('heading', { name: 'Kniebeuge' })).toBeVisible();
@@ -82,9 +84,6 @@ test('persists an optional warmup and running timer after reload', async ({
       new PageTransitionEvent('pageshow', { persisted: true }),
     );
   });
-  await expect(
-    runningWarmup.getByRole('button', { name: 'Stop' }),
-  ).toBeFocused();
   await page.clock.fastForward(30_000);
   await page.reload();
   const resumedWarmup = formWithHeading(page, 'Optionaler Aufwärmsatz');

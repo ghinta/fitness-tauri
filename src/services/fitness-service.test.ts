@@ -86,6 +86,28 @@ describe('fitness service', () => {
     expect(history[0]!.results).toHaveLength(7);
   });
 
+  it('round-trips unspecified weights in both set types through a backup', async () => {
+    const plan = (await service.listPlans())[0]!;
+    const session = await service.startWorkout(plan.template.id);
+    for (const setType of ['warmup', 'working'] as const) {
+      await service.saveSet(session, plan.slots[0]!.slot, {
+        setType,
+        weightKg: null,
+        durationSeconds: 30,
+        notes: '',
+      });
+    }
+    const { BackupService } = await import('./backup-service');
+    const backup = new BackupService(service.repositories.snapshots);
+    const prepared = backup.prepareImport(await backup.createJson());
+    await backup.replace(prepared);
+    expect(
+      (await service.getActiveWorkout())!.results.map(
+        ({ weightKg }) => weightKg,
+      ),
+    ).toEqual([null, null]);
+  });
+
   it('updates an existing exercise increment without rewriting its identity', async () => {
     const exercise = (await service.repositories.exercises.list(true))[0]!;
 

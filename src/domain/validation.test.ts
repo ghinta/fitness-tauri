@@ -222,19 +222,12 @@ describe('domain graph validation', () => {
     expect(validateDomainData(data)).toEqual([]);
   });
 
-  it('rejects null weight for a non-bodyweight exercise', () => {
+  it('allows unrecorded weights for warmup and working sets', () => {
     const data = createInitialDomainData();
     const session = sessionFor(data);
     data.workoutSessions.push(session);
     data.exerciseResults.push(resultFor(data, session, { weightKg: null }));
-    expect(validateDomainData(data)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: 'exerciseResults[0].weightKg',
-          code: 'invariant',
-        }),
-      ]),
-    );
+    expect(validateDomainData(data)).toEqual([]);
   });
 
   it('rejects duplicate IDs, dangling references and multiple active sessions', () => {

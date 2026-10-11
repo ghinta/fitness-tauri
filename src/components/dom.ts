@@ -57,6 +57,6 @@ export function formatDate(value: string): string {
 
 export function formatWeight(value: number | null): string {
   return value === null
-    ? 'Körpergewicht'
+    ? 'Ohne Gewichtsangabe'
     : `${new Intl.NumberFormat('de-AT', { maximumFractionDigits: 2 }).format(value)} kg`;
 }

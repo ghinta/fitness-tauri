@@ -6,11 +6,13 @@ export interface ViewContext {
   backup: BackupService;
   refresh(options?: RefreshOptions): Promise<void>;
   setDirty(dirty: boolean): void;
+  setTimerRunning(running: boolean): void;
+  screenAwake: import('../platform/screen-awake').ScreenAwakeController;
 }
 
 export interface RefreshOptions {
-  /** Keeps the active set timer in view after the view has been rebuilt. */
-  scroll?: 'top' | 'preserve' | 'timer';
+  /** Navigation goes to the top; same-screen refreshes keep their scroll position. */
+  scroll?: 'top' | 'preserve';
   /** Selector for a safe control to restore after the view has been rebuilt. */
   focusSelector?: string;
 }
