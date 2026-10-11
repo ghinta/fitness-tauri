@@ -1,6 +1,6 @@
 [package]
 name = "fitness-glass"
-version = "0.1.1"
+version = "0.1.2"
 description = "Local-first HIT training with Liquid Glass"
 authors = ["ghinta"]
 edition = "2021"

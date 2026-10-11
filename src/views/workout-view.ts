@@ -108,6 +108,7 @@ async function createStep(
     ),
   );
 
+  const setForms: SetFormsState = { busy: false, section };
   if (existingWarmup) {
     const saved = element('article', { className: 'card card--compact' });
     saved.append(
@@ -125,6 +126,7 @@ async function createStep(
         current.slot,
         exercise,
         'warmup',
+        setForms,
         previous[0],
       ),
     );
@@ -136,6 +138,7 @@ async function createStep(
       current.slot,
       exercise,
       'working',
+      setForms,
       previous[0],
     ),
     createPreviousCard(previous, exercise),
@@ -234,12 +237,19 @@ function createExerciseSelection(
   return form;
 }
 
+interface SetFormsState {
+  section: HTMLElement;
+  busy: boolean;
+  saveWarmup?: (preserveLayout: boolean) => Promise<void>;
+}
+
 function createSetForm(
   context: ViewContext,
   workout: ActiveWorkout,
   slot: ActiveWorkout['plan']['slots'][number]['slot'],
   exercise: Exercise,
   setType: 'warmup' | 'working',
+  setForms: SetFormsState,
   previous?: ExerciseResult,
 ): HTMLFormElement {
   const isWarmup = setType === 'warmup';
@@ -248,11 +258,10 @@ function createSetForm(
   });
   form.dataset.dirty = 'false';
   form.dataset.setType = setType;
-  form.append(
-    element('h2', {
-      text: isWarmup ? 'Optionaler Aufwärmsatz' : 'Arbeitssatz',
-    }),
-  );
+  const heading = element('h2', {
+    text: isWarmup ? 'Optionaler Aufwärmsatz' : 'Arbeitssatz',
+  });
+  form.append(heading);
 
   const grid = element('div', { className: 'input-grid' });
   const weight = element('input');
@@ -322,25 +331,45 @@ function createSetForm(
     'submit',
   );
   let interval: number | undefined;
+  let displayedDuration = ownsInitialTimer
+    ? initialTimer.durationSeconds
+    : null;
   const syncTimer = (): void => {
     if (interval !== undefined) window.clearInterval(interval);
     interval = undefined;
+    if (form.dataset.saved === 'true') {
+      start.disabled = stop.disabled = save.disabled = true;
+      weight.readOnly = duration.readOnly = notes.readOnly = true;
+      return;
+    }
     const timer = workout.session.setTimer;
     const ownsTimer =
       timer?.exerciseSlotId === slot.id && timer.setType === setType;
     const running = ownsTimer && timer.stoppedAt === null;
-    start.disabled = Boolean(timer);
+    const canSaveWarmup =
+      !isWarmup &&
+      timer?.exerciseSlotId === slot.id &&
+      timer.setType === 'warmup' &&
+      timer.stoppedAt !== null &&
+      Boolean(setForms.saveWarmup);
+    start.disabled = setForms.busy || (Boolean(timer) && !canSaveWarmup);
     start.hidden = Boolean(ownsTimer);
     stop.hidden = !ownsTimer;
-    stop.disabled = !running;
+    stop.disabled = setForms.busy || !running;
     stop.textContent = running ? 'Stop' : 'Gestoppt';
     stop.classList.toggle('button--timer-stop', Boolean(running));
     duration.readOnly = !ownsTimer || running;
     weight.readOnly = Boolean(running);
-    save.disabled = !ownsTimer || timer.durationSeconds === null;
+    save.disabled =
+      setForms.busy || !ownsTimer || timer.durationSeconds === null;
     if (ownsTimer) {
-      if (timer.durationSeconds !== null)
+      if (
+        timer.durationSeconds !== null &&
+        timer.durationSeconds !== displayedDuration
+      ) {
         duration.value = String(timer.durationSeconds);
+        displayedDuration = timer.durationSeconds;
+      }
       updateTimerDisplay(
         timerDisplay,
         timerHint,
@@ -360,9 +389,8 @@ function createSetForm(
   };
   // Update both set controls without replacing the forms, losing drafts, or scrolling.
   const notifyTimerChanged = (): void => {
-    form
-      .closest('.workout')
-      ?.querySelectorAll<HTMLFormElement>('form[data-set-type]')
+    setForms.section
+      .querySelectorAll<HTMLFormElement>('form[data-set-type]')
       .forEach((setForm) =>
         setForm.dispatchEvent(new Event('set-timer-changed')),
       );
@@ -370,19 +398,77 @@ function createSetForm(
   };
   const updateDirty = (): void =>
     context.setDirty(
-      Boolean(
-        form.closest('.workout')?.querySelector('form[data-dirty="true"]'),
-      ),
+      Boolean(setForms.section.querySelector('form[data-dirty="true"]')),
     );
+  const saveResult = (): Promise<ExerciseResult> =>
+    context.fitness.saveSet(workout.session, slot, {
+      setType,
+      weightKg: weight.value.trim() === '' ? null : Number(weight.value),
+      durationSeconds: Number(duration.value),
+      notes: notes.value,
+    });
+  if (isWarmup) {
+    setForms.saveWarmup = async (preserveLayout) => {
+      if (!form.checkValidity()) {
+        form
+          .querySelector<HTMLElement>('input:invalid, textarea:invalid')
+          ?.focus({ preventScroll: true });
+        throw new Error('Bitte korrigiere die Eingaben im Aufwärmsatz.');
+      }
+      const result = await saveResult();
+      workout.session.setTimer = null;
+      workout.results.push(result);
+      form.dataset.dirty = 'false';
+      setForms.saveWarmup = undefined;
+      const section = setForms.section;
+      if (preserveLayout) {
+        // Keep the working controls at the same position during the handoff.
+        form.dataset.saved = 'true';
+        heading.textContent = 'Aufwärmsatz gespeichert';
+        save.textContent = 'Gespeichert';
+      } else {
+        const saved = element('article', { className: 'card card--compact' });
+        saved.append(
+          element('h2', { text: 'Aufwärmsatz gespeichert' }),
+          element('p', {
+            text: `${formatWeight(result.weightKg)} · ${result.durationSeconds} Sekunden`,
+          }),
+        );
+        form.replaceWith(saved);
+      }
+      section
+        ?.querySelectorAll<HTMLFormElement>('form[data-set-type]')
+        .forEach((setForm) =>
+          setForm.dispatchEvent(new Event('set-timer-changed')),
+        );
+      context.setTimerRunning(false);
+      context.setDirty(
+        Boolean(section?.querySelector('form[data-dirty="true"]')),
+      );
+    };
+  }
   form.addEventListener('set-timer-changed', syncTimer);
   form.addEventListener('timer-resume', syncTimer);
   syncTimer();
   start.addEventListener('click', () => {
     void (async () => {
-      if (!weight.reportValidity()) return;
-      start.disabled = true;
+      if (setForms.busy || !weight.reportValidity()) return;
+      setForms.busy = true;
+      notifyTimerChanged();
       messages.replaceChildren();
+      let started = false;
       try {
+        const timer = workout.session.setTimer;
+        if (
+          !isWarmup &&
+          timer?.exerciseSlotId === slot.id &&
+          timer.setType === 'warmup' &&
+          timer.stoppedAt !== null
+        ) {
+          if (!setForms.saveWarmup)
+            throw new Error('Der Aufwärmsatz konnte nicht gespeichert werden.');
+          await setForms.saveWarmup(true);
+        }
         await context.fitness.startTimer(
           workout.session,
           slot,
@@ -404,11 +490,13 @@ function createSetForm(
           .forEach((control) => {
             control.disabled = true;
           });
-        notifyTimerChanged();
-        stop.focus({ preventScroll: true });
+        started = true;
       } catch (error) {
         messages.replaceChildren(statusMessage(toMessage(error), 'error'));
-        start.disabled = false;
+      } finally {
+        setForms.busy = false;
+        notifyTimerChanged();
+        if (started) stop.focus({ preventScroll: true });
       }
     })();
   });
@@ -441,49 +529,28 @@ function createSetForm(
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     void (async () => {
+      if (setForms.busy) return;
       messages.replaceChildren();
-      save.disabled = true;
+      setForms.busy = true;
+      notifyTimerChanged();
       try {
-        const result = await context.fitness.saveSet(workout.session, slot, {
-          setType,
-          weightKg: weight.value.trim() === '' ? null : Number(weight.value),
-          durationSeconds: Number(duration.value),
-          notes: notes.value,
-        });
-        form.dataset.dirty = 'false';
         if (isWarmup) {
-          // Keep the work set and any values entered there in place.
-          workout.session.setTimer = null;
-          workout.results.push(result);
-          const saved = element('article', { className: 'card card--compact' });
-          saved.append(
-            element('h2', { text: 'Aufwärmsatz gespeichert' }),
-            element('p', {
-              text: `${formatWeight(result.weightKg)} · ${result.durationSeconds} Sekunden`,
-            }),
-          );
-          const section = form.closest('.workout');
-          form.replaceWith(saved);
-          section
-            ?.querySelectorAll<HTMLFormElement>('form[data-set-type]')
-            .forEach((setForm) =>
-              setForm.dispatchEvent(new Event('set-timer-changed')),
-            );
-          context.setTimerRunning(false);
-          context.setDirty(
-            Boolean(section?.querySelector('form[data-dirty="true"]')),
-          );
+          await setForms.saveWarmup?.(false);
         } else {
+          await saveResult();
+          form.dataset.dirty = 'false';
           context.setDirty(false);
           context.setTimerRunning(false);
           await context.refresh();
         }
       } catch (error) {
         messages.append(statusMessage(toMessage(error), 'error'));
-        save.disabled = false;
         form
           .querySelector<HTMLElement>('input:invalid, textarea:invalid')
           ?.focus({ preventScroll: true });
+      } finally {
+        setForms.busy = false;
+        notifyTimerChanged();
       }
     })();
   });

@@ -49,7 +49,7 @@ The apps have independent local databases. Cancelling the native backup save dia
 
 ## Training controls and screen timeout
 
-Start and stop the timer without entering a weight. Duration is measured automatically and can be corrected after stopping. Timer actions update the current form in place, preserving its scroll position and drafts in the other set. Number inputs keep numeric validation and keyboard entry without browser spinner arrows.
+Start and stop the timer without entering a weight. Duration is measured automatically and can be corrected after stopping. Starting the working set automatically saves a stopped warmup, including any corrected values and notes; the separate warmup save button is optional. Timer actions update the current form in place, preserving its scroll position and drafts in the other set. Number inputs keep numeric validation and keyboard entry without browser spinner arrows.
 
 **Bildschirm wach halten** is enabled by default while the training screen is visible. The desktop app requests a native display power assertion through `keepawake`; the browser preview uses Screen Wake Lock when available. Leaving the training screen, hiding it, switching the option off, or closing the app releases the assertion. This prevents automatic display dimming, while preserving manual lock/sleep behavior. Browsers can refuse or release a wake lock in power-saving mode; the app shows a message if the request is unavailable.
 
