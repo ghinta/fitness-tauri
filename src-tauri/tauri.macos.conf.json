@@ -1,0 +1,32 @@
+{
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Fitness Glass",
+        "width": 1160,
+        "height": 850,
+        "minWidth": 375,
+        "minHeight": 600,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 22,
+          "y": 28
+        },
+        "windowEffects": {
+          "effects": ["liquidGlassRegular", "sidebar"],
+          "radius": 24
+        }
+      }
+    ]
+  },
+  "bundle": {
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+[package]
+name = "fitness-glass"
+version = "0.1.0"
+description = "Local-first HIT training with Liquid Glass"
+authors = ["ghinta"]
+edition = "2021"
+
+[lib]
+name = "fitness_glass_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = ["macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
