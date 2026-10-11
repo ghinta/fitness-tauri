@@ -1,0 +1,66 @@
+name: Publish browser preview
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v6
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Formatierung prüfen
+        run: npm run format:check
+
+      - name: Linting ausführen
+        run: npm run lint
+
+      - name: Typen prüfen
+        run: npm run typecheck
+
+      - name: Unit-Tests ausführen
+        run: npm run test
+
+      - name: Produktionsanwendung bauen
+        run: npm run build
+
+      - name: GitHub Pages konfigurieren
+        uses: actions/configure-pages@v6
+
+      - name: Pages-Artefakt hochladen
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Auf GitHub Pages bereitstellen
+        id: deployment
+        uses: actions/deploy-pages@v5
